@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 1. Base de Datos
+  gym-db:
+    image: mysql:8.0
+    container_name: gym_database
+    restart: always
+    environment:
+      MYSQL_DATABASE: tramusagym_db
+      MYSQL_ROOT_PASSWORD: tramusa_db_password
+    ports:
+      - "3308:3306"
+    volumes:
+      # Esta ruta es correcta si el archivo .sql está dentro de la carpeta 'database'
+      - ./database/tramusagym_db.sql:/docker-entrypoint-initdb.d/dump.sql
+      - gym_db_data:/var/lib/mysql
+
+  # 2. API (PHP)
+  gym-api:
+    # CAMBIO: Ahora apunta a la carpeta 'backend'
+    build: ./backend
+    container_name: gym_backend
+    restart: unless-stopped
+    ports:
+      - "9001:80"
+    depends_on:
+      - gym-db
+    environment:
+      - DB_HOST=gym-db
+      - DB_NAME=tramusagym_db
+      - DB_USER=root
+      - DB_PASS=tramusa_db_password
+
+  # 3. Web (React)
+  gym-frontend:
+    build:
+      # CAMBIO: El contexto ahora es la carpeta 'frontend'
+      context: ./frontend
+      args:
+        - VITE_API_URL=http://192.168.11.100:9001 
+    container_name: gym_frontend
+    restart: unless-stopped
+    ports:
+      - "9000:80"
+    depends_on:
+      - gym-api
+
+volumes:
+  gym_db_data:
