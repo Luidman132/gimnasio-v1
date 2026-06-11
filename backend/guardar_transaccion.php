@@ -1,39 +1,35 @@
 <?php
-// 1. Llamamos a la llave maestra
 require_once 'conexion.php';
-$data = json_decode(file_get_contents("php://input"));
 
-// 2. Verificamos que nos envíen los datos mínimos de un cobro (monto y concepto)
-if (isset($data->monto) && isset($data->concepto)) {
+$usuarioActual = requerir_sesion($conexion);
 
-    // Si no nos pasan un método de pago, asumimos Efectivo
-    $metodo_pago = isset($data->metodo_pago) ? $data->metodo_pago : 'Efectivo';
+solo_metodo('POST');
+$data = leer_json();
 
-    // Si no hay ID de miembro (ej. Visita Libre), lo dejamos en NULL
-    $miembro_id = (isset($data->miembro_id) && is_numeric($data->miembro_id)) ? $data->miembro_id : null;
+$monto = campo($data, 'monto');
+$concepto = trim((string) campo($data, 'concepto', ''));
 
-    // Si no hay ID de usuario que cobra, lo dejamos en NULL
-    $usuario_id = (isset($data->usuario_id) && is_numeric($data->usuario_id)) ? $data->usuario_id : 1;
-
-    try {
-        // 3. Insertamos el dinero en la caja fuerte (tabla transacciones)
-        $sql = "INSERT INTO transacciones (concepto, monto, metodo_pago, miembro_id, usuario_id) 
-                VALUES (:concepto, :monto, :metodo_pago, :miembro_id, :usuario_id)";
-
-        $stmt = $conexion->prepare($sql);
-        $stmt->execute([
-            ':concepto' => $data->concepto,
-            ':monto' => $data->monto,
-            ':metodo_pago' => $metodo_pago,
-            ':miembro_id' => $miembro_id,
-            ':usuario_id' => $usuario_id
-        ]);
-
-        echo json_encode(["success" => true, "mensaje" => "Transacción guardada correctamente."]);
-    } catch (PDOException $e) {
-        echo json_encode(["success" => false, "mensaje" => "Error al guardar transacción: " . $e->getMessage()]);
-    }
-} else {
-    echo json_encode(["success" => false, "mensaje" => "Faltan datos obligatorios (monto o concepto)."]);
+if ($concepto === '' || !is_numeric($monto) || (float) $monto <= 0) {
+    responder_error('Faltan datos obligatorios o el monto no es válido.', 400);
 }
-?>
+
+$miembroId = is_numeric(campo($data, 'miembro_id')) ? (int) $data->miembro_id : null;
+
+try {
+    // El usuario que cobra es el de la sesión, no un valor del cliente:
+    // así cada cobro queda asociado a quien realmente lo registró.
+    $sql = 'INSERT INTO transacciones (concepto, monto, metodo_pago, miembro_id, usuario_id)
+            VALUES (:concepto, :monto, :metodo_pago, :miembro_id, :usuario_id)';
+
+    $conexion->prepare($sql)->execute([
+        ':concepto' => mb_substr($concepto, 0, 100),
+        ':monto' => (float) $monto,
+        ':metodo_pago' => campo($data, 'metodo_pago', 'Efectivo'),
+        ':miembro_id' => $miembroId,
+        ':usuario_id' => $usuarioActual['id'],
+    ]);
+
+    responder(['success' => true, 'mensaje' => 'Transacción guardada correctamente.']);
+} catch (PDOException $e) {
+    responder_error('Error al guardar la transacción.', 500, $e);
+}

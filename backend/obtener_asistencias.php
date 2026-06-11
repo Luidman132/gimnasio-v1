@@ -1,56 +1,52 @@
 <?php
-// 1. Llamamos a la llave maestra
 require_once 'conexion.php';
 
+$usuarioActual = requerir_sesion($conexion);
+
 try {
-    // 2. Mezclamos asistencias con visitas libres y cobros usando UNION ALL
+    // Mezcla asistencias, visitas libres y cobros. Cada rama limita sus
+    // 50 más recientes antes del UNION para no ordenar tablas completas.
     $sql = "
-        (SELECT 
-            a.id, 
-            a.fecha_hora, 
-            m.nombres, 
-            m.apellidos, 
-            m.dni, 
-            'asistencia' AS tipo 
-        FROM asistencias a 
-        INNER JOIN miembros m ON a.miembro_id = m.id)
+        (SELECT a.id,
+                a.fecha_hora,
+                m.nombres,
+                m.apellidos,
+                m.dni,
+                'asistencia' AS tipo
+         FROM asistencias a
+         INNER JOIN miembros m ON a.miembro_id = m.id
+         ORDER BY a.fecha_hora DESC LIMIT 50)
 
         UNION ALL
 
-        (SELECT 
-            v.id, 
-            v.fecha_registro AS fecha_hora, 
-            v.nombre_completo AS nombres, 
-            '' AS apellidos, 
-            v.dni, 
-            'visita_libre' AS tipo 
-        FROM visitas_libres v)
+        (SELECT v.id,
+                v.fecha_registro AS fecha_hora,
+                v.nombre_completo AS nombres,
+                '' AS apellidos,
+                v.dni,
+                'visita_libre' AS tipo
+         FROM visitas_libres v
+         ORDER BY v.fecha_registro DESC LIMIT 50)
 
         UNION ALL
 
-        (SELECT 
-            t.id, 
-            t.fecha AS fecha_hora, 
-            m.nombres, 
-            m.apellidos, 
-            m.dni, 
-            'cobro' AS tipo 
-        FROM transacciones t 
-        INNER JOIN miembros m ON t.miembro_id = m.id)
+        (SELECT t.id,
+                t.fecha AS fecha_hora,
+                m.nombres,
+                m.apellidos,
+                m.dni,
+                'cobro' AS tipo
+         FROM transacciones t
+         INNER JOIN miembros m ON t.miembro_id = m.id
+         ORDER BY t.fecha DESC LIMIT 50)
 
-        ORDER BY fecha_hora DESC 
+        ORDER BY fecha_hora DESC
         LIMIT 50
     ";
 
-    $stmt = $conexion->prepare($sql);
-    $stmt->execute();
+    $asistencias = $conexion->query($sql)->fetchAll();
 
-    $asistencias = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // 3. Enviamos la lista a React
-    echo json_encode(["success" => true, "asistencias" => $asistencias]);
-
+    responder(['success' => true, 'asistencias' => $asistencias]);
 } catch (PDOException $e) {
-    echo json_encode(["success" => false, "mensaje" => $e->getMessage()]);
+    responder_error('Error al obtener el historial de asistencias.', 500, $e);
 }
-?>

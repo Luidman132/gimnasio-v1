@@ -1,20 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { apiFetch, guardarSesion, limpiarSesion, usuarioGuardado } from './utils/api'
 import DashboardLayout from './components/DashboardLayout'
 import DashboardInicio from './components/DashboardInicio'
-import MiembrosView from './components/MiembrosView'
-import NuevaInscripcionView from './components/NuevaInscripcionView'
-import RegistrarAsistenciaView from './components/RegistrarAsistenciaView'
-import ReportesView from './components/ReportesView'
-import PlanesView from './components/PlanesView'
-import ConfiguracionView from './components/ConfiguracionView'
 import LoginView from './components/LoginView'
 
+// Carga diferida: cada vista pesada (gráficos, escáner QR, generación de
+// tickets) se descarga solo cuando se abre, no en el arranque.
+const MiembrosView = lazy(() => import('./components/MiembrosView'))
+const NuevaInscripcionView = lazy(() => import('./components/NuevaInscripcionView'))
+const RegistrarAsistenciaView = lazy(() => import('./components/RegistrarAsistenciaView'))
+const ReportesView = lazy(() => import('./components/ReportesView'))
+const PlanesView = lazy(() => import('./components/PlanesView'))
+const ConfiguracionView = lazy(() => import('./components/ConfiguracionView'))
+
+function CargandoVista() {
+  return (
+    <div className="flex items-center justify-center h-64 text-slate-400 dark:text-slate-500 text-sm">
+      Cargando…
+    </div>
+  )
+}
+
 function App() {
-  const [usuario, setUsuario] = useState(() => {
-    const saved = localStorage.getItem('tramusa_usuario')
-    return saved ? JSON.parse(saved) : null
-  })
+  const [usuario, setUsuario] = useState(() => usuarioGuardado())
   const [vistaActiva, setVistaActiva] = useState(() => {
     return localStorage.getItem('tramusa_vista') || 'Inicio'
   })
@@ -25,16 +34,26 @@ function App() {
     localStorage.setItem('tramusa_vista', vistaActiva)
   }, [vistaActiva])
 
-  function handleLogin(userData) {
+  // Si el servidor responde 401 (sesión expirada), volver al login
+  useEffect(() => {
+    const alExpirar = () => setUsuario(null)
+    window.addEventListener('tramusa:sesion-expirada', alExpirar)
+    return () => window.removeEventListener('tramusa:sesion-expirada', alExpirar)
+  }, [])
+
+  function handleLogin(userData, token) {
+    guardarSesion(token, userData)
     setUsuario(userData)
     setVistaActiva('Inicio')
-    localStorage.setItem('tramusa_usuario', JSON.stringify(userData))
+    // Avisar al GymContext que ya puede cargar los datos
+    window.dispatchEvent(new Event('tramusa:login'))
   }
 
   function handleLogout() {
+    apiFetch('logout.php', { method: 'POST' }) // invalida el token en el servidor
+    limpiarSesion()
     setUsuario(null)
     setVistaActiva('Inicio')
-    localStorage.removeItem('tramusa_usuario')
     localStorage.removeItem('tramusa_vista')
   }
 
@@ -79,7 +98,9 @@ function App() {
       vistaActiva={vistaActiva}
       setVistaActiva={setVistaActiva}
     >
-      {renderContent()}
+      <Suspense fallback={<CargandoVista />}>
+        {renderContent()}
+      </Suspense>
     </DashboardLayout>
   )
 }

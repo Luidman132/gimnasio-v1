@@ -148,10 +148,16 @@ CREATE TABLE `usuarios` (
 --
 -- Volcado de datos para la tabla `usuarios`
 --
+-- NOTA DE SEGURIDAD: cuentas SEMILLA solo para instalaciones NUEVAS (vacías).
+-- Las contraseñas van hasheadas con bcrypt (no en texto plano). Las
+-- credenciales por defecto y la advertencia de cambiarlas están en DEPLOY.md
+-- (Parte F). En una actualización de producción este bloque se IGNORA porque
+-- el volumen de datos ya existe.
+--
 
 INSERT INTO `usuarios` (`id`, `nombre`, `correo`, `password`, `rol`, `activo`, `created_at`, `updated_at`) VALUES
-(1, 'Julio', 'julio@tramusa.pe', 'admin123', 'Admin', 1, '2026-03-23 12:26:30', '2026-03-23 21:08:44'),
-(2, 'Dina', 'dina@tramusa.pe', 'recepcion123', 'Recepcion', 1, '2026-03-23 12:26:30', '2026-03-23 21:08:48');
+(1, 'Julio', 'julio@tramusa.pe', '$2y$12$wJuh5xiDNPoOCb2c6LtknesVhwasv8uR2gl8dysnXWobL9ikzFHZG', 'Admin', 1, '2026-03-23 12:26:30', '2026-03-23 21:08:44'),
+(2, 'Dina', 'dina@tramusa.pe', '$2y$12$xAR..HJUpxS5PIfR789eP.f.UuYIgP4HlAve1hs43iEBYy4EetoSa', 'Recepcion', 1, '2026-03-23 12:26:30', '2026-03-23 21:08:48');
 
 -- --------------------------------------------------------
 

@@ -3,7 +3,7 @@ import { Home, Users, CalendarCheck, DollarSign, LayoutList, Settings, Bell, Che
 import { useTheme } from '../context/ThemeContext'
 import { useGym } from '../context/GymContext'
 
-const logoTramusa = '/logo_empresa_tramusa.svg'
+const logoTramusa = '/logo_empresa_tramusa.png'
 
 export const menuItems = [
   { icon: Home, label: 'Inicio', roles: ['admin', 'recepcion'] },
@@ -22,10 +22,26 @@ function formatDateTime(date) {
   return `${day} ${month} ${year} • ${time}`
 }
 
+// El reloj vive en su propio componente: su tick periódico re-renderiza
+// solo este span y no todo el layout.
+function RelojTopbar() {
+  const [ahora, setAhora] = useState(new Date())
+
+  useEffect(() => {
+    const interval = setInterval(() => setAhora(new Date()), 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <span className="text-lg font-semibold text-slate-700 dark:text-slate-300">
+      {formatDateTime(ahora)}
+    </span>
+  )
+}
+
 export default function DashboardLayout({ children, usuario, onLogout, vistaActiva, setVistaActiva }) {
   const { darkMode, toggleDarkMode } = useTheme()
   const { configuracion, miembros } = useGym()
-  const [currentTime, setCurrentTime] = useState(new Date())
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [notificaciones, setNotificaciones] = useState([])
@@ -70,11 +86,6 @@ export default function DashboardLayout({ children, usuario, onLogout, vistaActi
 
     setNotificaciones(alertas)
   }, [miembros])
-
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(new Date()), 1000)
-    return () => clearInterval(interval)
-  }, [])
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -221,9 +232,7 @@ export default function DashboardLayout({ children, usuario, onLogout, vistaActi
               Hola, <span className="text-slate-700 dark:text-slate-200 font-semibold">{usuario.nombre}</span>
             </span>
 
-            <span className="text-lg font-semibold text-slate-700 dark:text-slate-300">
-              {formatDateTime(currentTime)}
-            </span>
+            <RelojTopbar />
 
             <button
               onClick={toggleDarkMode}

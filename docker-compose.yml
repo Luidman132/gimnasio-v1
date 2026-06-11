@@ -1,50 +1,80 @@
-version: '3.8'
-
 services:
-  # 1. Base de Datos
+  # 1. Base de datos
   gym-db:
     image: mysql:8.0
     container_name: gym_database
     restart: always
     environment:
-      MYSQL_DATABASE: tramusagym_db
-      MYSQL_ROOT_PASSWORD: tramusa_db_password
-    ports:
-      - "3308:3306"
+      MYSQL_DATABASE: ${DB_NAME:-tramusagym_db}
+      MYSQL_ROOT_PASSWORD: ${DB_PASS:?Falta DB_PASS. Copia .env.example a .env y define la contraseña}
+    # SIN "ports": la BD solo es accesible dentro de la red interna de
+    # Docker. Para administrarla, usar el servicio phpMyAdmin de abajo
+    # (solo accesible desde el propio servidor) o un túnel SSH.
     volumes:
-      # Esta ruta es correcta si el archivo .sql está dentro de la carpeta 'database'
-      - ./database/tramusagym_db.sql:/docker-entrypoint-initdb.d/dump.sql
+      # Solo se ejecutan al CREAR el volumen por primera vez (instalación
+      # nueva). En producción la migración se aplica a mano (ver DEPLOY.md).
+      - ./database/tramusagym_db.sql:/docker-entrypoint-initdb.d/01-base.sql
+      - ./database/migrations/001_seguridad_y_rendimiento.sql:/docker-entrypoint-initdb.d/02-migracion.sql
       - gym_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   # 2. API (PHP)
   gym-api:
-    # CAMBIO: Ahora apunta a la carpeta 'backend'
     build: ./backend
     container_name: gym_backend
     restart: unless-stopped
+    # Solo accesible desde el propio servidor (127.0.0.1), nunca desde la
+    # red. El frontend le llega por la red interna de Docker vía /api.
     ports:
-      - "9001:80"
+      - "127.0.0.1:9001:80"
     depends_on:
-      - gym-db
+      gym-db:
+        condition: service_healthy
     environment:
       - DB_HOST=gym-db
-      - DB_NAME=tramusagym_db
+      - DB_NAME=${DB_NAME:-tramusagym_db}
       - DB_USER=root
-      - DB_PASS=tramusa_db_password
+      - DB_PASS=${DB_PASS}
+      # Orígenes extra permitidos (solo necesario si se accede a la API
+      # desde fuera del proxy /api, ej. desarrollo con Vite).
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
 
-  # 3. Web (React)
+  # 3. Web (React + nginx con proxy /api)
   gym-frontend:
     build:
-      # CAMBIO: El contexto ahora es la carpeta 'frontend'
       context: ./frontend
-      args:
-        - VITE_API_URL=http://192.168.11.100:9001 
     container_name: gym_frontend
     restart: unless-stopped
     ports:
-      - "9000:80"
+      - "${PUERTO_WEB:-9000}:80"
     depends_on:
       - gym-api
 
+  # 4. phpMyAdmin — administración de la BD.
+  #    Por defecto SOLO accesible desde el propio servidor (127.0.0.1), lo
+  #    más seguro. Para abrirlo desde la red de la empresa (como antes, en
+  #    192.168.x:9002) pon en el .env:  PMA_BIND=0.0.0.0
+  #    Alternativa segura sin exponerlo: túnel SSH
+  #    ssh -L 9002:127.0.0.1:9002 usuario@servidor
+  gym-phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: gym_phpmyadmin
+    restart: unless-stopped
+    environment:
+      - PMA_HOST=gym-db
+      - UPLOAD_LIMIT=64M
+    ports:
+      - "${PMA_BIND:-127.0.0.1}:9002:80"
+    depends_on:
+      gym-db:
+        condition: service_healthy
+
 volumes:
+  # IMPORTANTE: este volumen guarda TODOS los datos (miembros, pagos,
+  # asistencias). Sobrevive a "docker compose up/down" y a los rebuilds.
+  # Se borra SOLO si se ejecuta "docker compose down -v"  ← NUNCA hacer eso.
   gym_db_data:

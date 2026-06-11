@@ -3,6 +3,7 @@ import { Search, UserCircle, UserPlus, ArrowRight, CheckCircle, Pencil, Ticket, 
 import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import { formatHora, parseMonto } from '../utils/helpers'
+import { apiFetch } from '../utils/api'
 import { inputClasses, inputErrorClasses, estilosEstado } from '../utils/constants'
 import { useToast } from '../context/ToastContext'
 import { useGym } from '../context/GymContext'
@@ -17,6 +18,7 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
   const { mostrarToast } = useToast()
   const { miembros, historial, actualizarMiembro, agregarRegistro, actualizarRegistro, eliminarRegistro, fetchMiembros, fetchHistorial, registrarTransaccion, registrarVisitaLibre: registrarVisitaLibreBD, renovarMiembro } = useGym()
 
+  const [procesando, setProcesando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [resultadosBusqueda, setResultadosBusqueda] = useState([])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
@@ -80,23 +82,24 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
   }
 
   function seleccionarCliente(cliente) {
-    console.log('=> MIEMBRO SELECCIONADO MANUALMENTE:', cliente)
     setClienteSeleccionado(cliente)
     setBusqueda('')
     setResultadosBusqueda([])
   }
 
-  function confirmarAsistencia() {
-    console.log('1. BOTON PRESIONADO en Vista. Miembro:', clienteSeleccionado)
+  async function confirmarAsistencia() {
     if (!clienteSeleccionado) return
-    console.log('2. Llamando a agregarRegistro desde la Vista...')
-    agregarRegistro({
+    const resultado = await agregarRegistro({
       tipo: 'asistencia',
       titulo: clienteSeleccionado.nombre,
       detalle: `Plan: ${clienteSeleccionado.plan}`,
       miembroId: clienteSeleccionado.id,
     })
-    mostrarToast(`Asistencia registrada: ${clienteSeleccionado.nombre}`)
+    if (resultado?.error) {
+      mostrarToast(resultado.error, 'error')
+    } else {
+      mostrarToast(`Asistencia registrada: ${clienteSeleccionado.nombre}`)
+    }
     limpiarBusqueda()
   }
 
@@ -135,6 +138,7 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
   }
 
   async function registrarVisitaLibre() {
+    if (procesando) return
     const errs = {}
     if (!nombresVisita.trim()) errs.nombres = true
     if (!apellidosVisita.trim()) errs.apellidos = true
@@ -144,6 +148,7 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
       mostrarToast('Completa nombre, apellido y monto', 'error')
       return
     }
+    setProcesando(true)
     const monto = parseFloat(montoVisita)
 
     // 1. Guardar la visita libre en su tabla propia (MySQL)
@@ -186,32 +191,39 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
 
     mostrarToast(`Visita libre registrada: ${nombresVisita.trim()} ${apellidosVisita.trim()}`)
     resetFormularioVisita()
+    setProcesando(false)
   }
 
   async function confirmarRenovacion(datos) {
-    if (!clienteSeleccionado) return
+    if (!clienteSeleccionado || procesando) return
+    setProcesando(true)
     const monto = parseMonto(datos.monto)
-    const [year, month, day] = datos.fechaFin.split('-')
-    const fechaFinFormateada = `${day}/${month}/${year}`
     const nombrePlanCorto = datos.planLabel.split(' ')[0]
 
-    await renovarMiembro(clienteSeleccionado.id, {
+    // fechaFin viaja en formato ISO (YYYY-MM-DD), que es lo que MySQL espera
+    const resultado = await renovarMiembro(clienteSeleccionado.id, {
       plan: nombrePlanCorto,
       planLabel: datos.planLabel,
-      fechaFin: fechaFinFormateada,
+      fechaFin: datos.fechaFin,
       monto,
       turno: datos.turno,
       recibo: datos.recibo,
       nombreMiembro: clienteSeleccionado.nombre,
     })
 
-    mostrarToast(`Suscripcion renovada: ${clienteSeleccionado.nombre} - ${datos.planLabel}`)
+    setProcesando(false)
+    if (resultado?.success) {
+      mostrarToast(`Suscripcion renovada: ${clienteSeleccionado.nombre} - ${datos.planLabel}`)
+    } else {
+      mostrarToast(resultado?.mensaje || 'No se pudo registrar la renovación', 'error')
+    }
     setMostrarModalRenovacion(false)
     limpiarBusqueda()
   }
 
   async function procesarVentaPase(diasPase, montoRaw, registrarIngresoAhora) {
-    if (!clienteSeleccionado) return
+    if (!clienteSeleccionado || procesando) return
+    setProcesando(true)
     const monto = parseFloat(montoRaw) || 0
 
     // Registrar transacción en la BD (MySQL)
@@ -246,6 +258,7 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
     mostrarToast(`Pase vendido: ${clienteSeleccionado.nombre} - ${diasPase} dia${diasPase > 1 ? 's' : ''}`)
     setMostrarModalPase(false)
     limpiarBusqueda()
+    setProcesando(false)
   }
 
   function guardarEdicionCliente(nombre, dni) {
@@ -268,45 +281,34 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
   }
 
   async function procesarQR(qrToken) {
-    console.log('=> QR ESCANEADO:', qrToken)
     if (!qrToken) return
 
-    try {
-      console.log('=> QR: Haciendo fetch a registrar_asistencia.php con qr_token...')
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/registrar_asistencia.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qr_token: qrToken })
+    const data = await apiFetch('registrar_asistencia.php', {
+      method: 'POST',
+      body: { qr_token: qrToken },
+    })
+
+    if (data.success) {
+      // Recargar datos para reflejar cambios
+      await fetchMiembros()
+      await fetchHistorial()
+
+      setAlertaExito({
+        nombre: data.nombre || 'Miembro',
+        hora: new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
       })
-
-      const data = await response.json()
-      console.log('=> QR: Respuesta del servidor:', data)
-
-      if (data.success) {
-        // Recargar datos para reflejar cambios
-        await fetchMiembros()
-        await fetchHistorial()
-
-        setAlertaExito({
-          nombre: data.nombre || 'Miembro',
-          hora: new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
-        })
-        setTimeout(() => setAlertaExito(null), 3500)
-        setMostrarScanner(false)
-      } else {
-        mostrarToast(data.mensaje || 'Error al registrar asistencia', 'error')
-        // Si el miembro existe pero tiene plan vencido, seleccionarlo para renovación
-        if (data.miembro_id) {
-          const miembroEncontrado = miembros.find(m => m.id === Number(data.miembro_id))
-          if (miembroEncontrado) {
-            seleccionarCliente(miembroEncontrado)
-            setMostrarScanner(false)
-          }
+      setTimeout(() => setAlertaExito(null), 3500)
+      setMostrarScanner(false)
+    } else {
+      mostrarToast(data.mensaje || 'Error al registrar asistencia', 'error')
+      // Si el miembro existe pero tiene plan vencido, seleccionarlo para renovación
+      if (data.miembro_id) {
+        const miembroEncontrado = miembros.find(m => m.id === Number(data.miembro_id))
+        if (miembroEncontrado) {
+          seleccionarCliente(miembroEncontrado)
+          setMostrarScanner(false)
         }
       }
-    } catch (error) {
-      console.error("Error de conexión:", error)
-      mostrarToast('Error de conexión con el servidor', 'error')
     }
   }
 
@@ -449,7 +451,7 @@ export default function RegistrarAsistenciaView({ usuario, miembroPreSeleccionad
                   <button type="button" onClick={resetFormularioVisita} className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     Cancelar
                   </button>
-                  <button type="button" onClick={registrarVisitaLibre} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 px-6 font-semibold text-sm shadow-sm hover:shadow transition-all">
+                  <button type="button" onClick={registrarVisitaLibre} disabled={procesando} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 px-6 font-semibold text-sm shadow-sm hover:shadow transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                     <CheckCircle size={16} />
                     Registrar Pago y Acceso
                   </button>

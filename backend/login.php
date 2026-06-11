@@ -1,30 +1,61 @@
 <?php
-// 1. Llamamos a nuestra llave maestra para poder entrar a MySQL
 require_once 'conexion.php';
 
-// 2. Recibimos el paquete con el correo y contraseña que nos mandará tu React
-$data = json_decode(file_get_contents("php://input"));
+solo_metodo('POST');
+$data = leer_json();
 
-// 3. Verificamos que React de verdad nos haya mandado esos datos
-if (isset($data->correo) && isset($data->password)) {
-    $correo = $data->correo;
-    $password = $data->password;
+$correo = trim((string) campo($data, 'correo', ''));
+$password = (string) campo($data, 'password', '');
 
-    // 4. Le preguntamos a la base de datos si existe alguien con ese correo y clave
-    $stmt = $conexion->prepare("SELECT id, nombre, correo, rol FROM usuarios WHERE correo = :correo AND password = :password");
-    $stmt->bindParam(':correo', $correo);
-    $stmt->bindParam(':password', $password);
-    $stmt->execute();
-
-    // 5. Si encontramos al usuario, le decimos a React "¡Pásale!"
-    if ($stmt->rowCount() > 0) {
-        $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
-        echo json_encode(["success" => true, "usuario" => $usuario]);
-    } else {
-        // Si no existe, le decimos "Acceso denegado"
-        echo json_encode(["success" => false, "mensaje" => "Correo o contraseña incorrectos."]);
-    }
-} else {
-    echo json_encode(["success" => false, "mensaje" => "Faltan datos."]);
+if ($correo === '' || $password === '') {
+    responder_error('Faltan datos.', 400);
 }
-?>
+
+try {
+    $stmt = $conexion->prepare(
+        'SELECT id, nombre, correo, rol, password, activo
+         FROM usuarios WHERE correo = :correo LIMIT 1'
+    );
+    $stmt->execute([':correo' => $correo]);
+    $usuario = $stmt->fetch();
+
+    $valida = false;
+    if ($usuario && (int) $usuario['activo'] === 1) {
+        $guardada = (string) $usuario['password'];
+
+        if (str_starts_with($guardada, '$2y$') || str_starts_with($guardada, '$argon2')) {
+            $valida = password_verify($password, $guardada);
+        } else {
+            // Contraseña heredada en texto plano: si coincide, se valida y
+            // se re-guarda hasheada de inmediato (migración transparente).
+            $valida = hash_equals($guardada, $password);
+            if ($valida) {
+                $conexion->prepare('UPDATE usuarios SET password = :hash WHERE id = :id')
+                    ->execute([
+                        ':hash' => password_hash($password, PASSWORD_DEFAULT),
+                        ':id' => $usuario['id'],
+                    ]);
+            }
+        }
+    }
+
+    if (!$valida) {
+        usleep(450000); // freno simple contra fuerza bruta
+        responder_error('Correo o contraseña incorrectos.', 401);
+    }
+
+    $token = crear_sesion($conexion, (int) $usuario['id']);
+
+    responder([
+        'success' => true,
+        'token' => $token,
+        'usuario' => [
+            'id' => (int) $usuario['id'],
+            'nombre' => $usuario['nombre'],
+            'correo' => $usuario['correo'],
+            'rol' => $usuario['rol'],
+        ],
+    ]);
+} catch (PDOException $e) {
+    responder_error('Error del servidor al iniciar sesión.', 500, $e);
+}

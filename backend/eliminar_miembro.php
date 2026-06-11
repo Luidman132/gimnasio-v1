@@ -1,31 +1,26 @@
 <?php
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
-header("Content-Type: application/json; charset=UTF-8");
-
 require_once 'conexion.php';
 
-// Leer el JSON que envía React
-$data = json_decode(file_get_contents("php://input"));
+// Acción destructiva: solo administradores.
+$usuarioActual = requerir_sesion($conexion, soloAdmin: true);
 
-if (!isset($data->id)) {
-    echo json_encode(["success" => false, "mensaje" => "ID no proporcionado"]);
-    exit;
+solo_metodo('POST');
+$data = leer_json();
+
+$id = campo($data, 'id');
+if (!is_numeric($id)) {
+    responder_error('ID no proporcionado.', 400);
 }
 
 try {
-    // Soft Delete: En lugar de borrar, marcamos eliminado = 1
-    $sql = "UPDATE miembros SET eliminado = 1 WHERE id = :id";
-    $stmt = $conexion->prepare($sql);
-    $stmt->execute([':id' => $data->id]);
+    // Soft delete: se marca eliminado = 1, no se borra la fila.
+    $stmt = $conexion->prepare('UPDATE miembros SET eliminado = 1 WHERE id = :id AND eliminado = 0');
+    $stmt->execute([':id' => (int) $id]);
 
     if ($stmt->rowCount() > 0) {
-        echo json_encode(["success" => true, "mensaje" => "Miembro eliminado correctamente"]);
-    } else {
-        echo json_encode(["success" => false, "mensaje" => "No se encontró el miembro o ya estaba eliminado"]);
+        responder(['success' => true, 'mensaje' => 'Miembro eliminado correctamente.']);
     }
+    responder_error('No se encontró el miembro o ya estaba eliminado.', 404);
 } catch (PDOException $e) {
-    echo json_encode(["success" => false, "mensaje" => "Error BD: " . $e->getMessage()]);
+    responder_error('Error al eliminar el miembro.', 500, $e);
 }
-?>

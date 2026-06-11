@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Dumbbell, Lock, Mail, ArrowRight } from 'lucide-react'
-
-
+import { apiFetch } from '../utils/api'
 
 export default function LoginView({ onLogin }) {
   const [email, setEmail] = useState('')
@@ -14,26 +13,17 @@ export default function LoginView({ onLogin }) {
     setError('')
     setIsLoading(true)
 
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/login.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ correo: email, password })
-      })
+    const data = await apiFetch('login.php', {
+      method: 'POST',
+      body: { correo: email, password },
+    })
 
-      const data = await response.json()
-
-      if (data.success) {
-        onLogin(data.usuario)
-      } else {
-        setError(data.mensaje || 'Correo o contraseña incorrectos')
-      }
-    } catch (err) {
-      console.error('Error conectando con la API:', err)
-      setError('Error de conexión con el servidor. Verifica que MAMP esté encendido.')
-    } finally {
-      setIsLoading(false)
+    if (data.success && data.token) {
+      onLogin(data.usuario, data.token)
+    } else {
+      setError(data.mensaje || 'Correo o contraseña incorrectos')
     }
+    setIsLoading(false)
   }
 
   return (

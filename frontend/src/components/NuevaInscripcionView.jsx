@@ -72,6 +72,7 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
   const [fechaFin, setFechaFin] = useState('')
   const [turno, setTurno] = useState('')
   const [monto, setMonto] = useState('')
+  const [guardando, setGuardando] = useState(false)
   const [montoDisplay, setMontoDisplay] = useState('')
 
   function handleMontoChange(e) {
@@ -216,6 +217,10 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    // Evita el doble envío: el segundo clic chocaba contra el DNI único
+    // de la BD y mostraba un error de duplicado.
+    if (guardando) return
+
     if (!validar()) {
       mostrarToast('Completa los campos obligatorios correctamente', 'error')
       return
@@ -237,6 +242,8 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
     const codigoFinal = codigoPais === 'otro' ? codigoPersonalizado : codigoPais
     const telefonoCompleto = celular ? `${codigoFinal} ${celular}`.trim() : ''
 
+    setGuardando(true)
+
     // Enviar fechas directamente en YYYY-MM-DD (formato ISO que ya tienen los inputs)
     const resultado = await agregarMiembro({
       dni: numDoc,
@@ -252,8 +259,12 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
       turno: turno || undefined,
     })
 
-    // SOLO si el backend confirmó éxito
-    if (!resultado || !resultado.success) return
+    // Si el backend no confirmó éxito, avisar SIEMPRE al usuario
+    if (!resultado || !resultado.success) {
+      setGuardando(false)
+      mostrarToast(resultado?.mensaje || 'No se pudo registrar al cliente. Inténtalo de nuevo.', 'error')
+      return
+    }
 
     // Usar el qr_token real que generó el backend (PHP uniqid)
     const qrTokenReal = resultado.data.qr_token || generarCodigoQRUnico(nombreCompleto)
@@ -277,6 +288,7 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
     }
 
     mostrarToast(`${nombre.trim()} ${apellido.trim()} inscrito correctamente`)
+    setGuardando(false)
 
     // Abrir el Resumen de Inscripción con todos los datos guardados
     setResumenInscripcion({
@@ -289,7 +301,7 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
       plan: nombrePlan || 'Personalizado',
       fechaInicio,
       fechaFin,
-      monto: parseFloat(monto).toFixed(2),
+      monto: monto ? parseFloat(monto).toFixed(2) : '0.00',
       qrToken: qrTokenReal,
     })
   }
@@ -640,9 +652,10 @@ export default function NuevaInscripcionView({ setVistaActiva }) {
         <div className="flex justify-end pt-2">
           <button
             type="submit"
-            className="bg-red-600 hover:bg-red-700 text-white rounded-xl py-3 px-8 font-semibold transition-colors"
+            disabled={guardando}
+            className="bg-red-600 hover:bg-red-700 text-white rounded-xl py-3 px-8 font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Registrar Suscripción
+            {guardando ? 'Guardando…' : 'Registrar Suscripción'}
           </button>
         </div>
       </form>

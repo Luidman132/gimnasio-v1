@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, UserPlus, ChevronRight, ArrowLeft, UserCircle, Phone, Mail, ShieldAlert, CalendarDays, CreditCard, CheckCircle, X, QrCode, Download, Edit2, Save, Trash2 } from 'lucide-react'
+import { Search, UserPlus, ChevronRight, ArrowLeft, UserCircle, Phone, Mail, ShieldAlert, CalendarDays, CreditCard, CheckCircle, X, QrCode, Download, Edit2, Save, Trash2, FileSpreadsheet } from 'lucide-react'
 import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import { useGym } from '../context/GymContext'
 import { useToast } from '../context/ToastContext'
+import { apiFetch } from '../utils/api'
+import { generarExcelMiembros } from '../utils/exportarExcel'
 import { CurrencyInput } from './CurrencyInput'
 
 
@@ -24,8 +26,10 @@ const estadoTexto = {
 }
 
 export default function MiembrosView({ usuario, setVistaActiva, miembroPreSeleccionado, setMiembroPreSeleccionado }) {
-  const { miembros, planes, configuracion, actualizarMiembro, agregarRegistro, renovarMiembro, eliminarMiembro } = useGym()
+  const { miembros, planes, configuracion, actualizarMiembro, agregarRegistro, renovarMiembro, eliminarMiembro, registrarTransaccion } = useGym()
   const { mostrarToast } = useToast()
+  const [procesando, setProcesando] = useState(false)
+  const [exportando, setExportando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState('todos')
   const [ordenarPor, setOrdenarPor] = useState('alfabetico')
@@ -114,8 +118,10 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
   }
 
   async function confirmarRenovacion() {
+    if (procesando) return
     const planObj = planesActivos.find(p => String(p.id) === String(renovarPlan))
     if (!planObj) return
+    setProcesando(true)
 
     const hoy = new Date()
     hoy.setHours(0, 0, 0, 0)
@@ -126,7 +132,7 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
     const fechaFinStr = formatFechaISO(fechaFin)
     const montoFinal = renovarMonto || String(planObj.precio.toFixed(2))
 
-    await renovarMiembro(miembroViendo.id, {
+    const resultado = await renovarMiembro(miembroViendo.id, {
       plan: planObj.nombre,
       planLabel: planObj.nombre,
       fechaInicio: fechaInicioStr,
@@ -134,6 +140,13 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
       monto: montoFinal,
       nombreMiembro: miembroViendo.nombre,
     })
+
+    setProcesando(false)
+    if (!resultado?.success) {
+      mostrarToast(resultado?.mensaje || 'No se pudo registrar la renovación', 'error')
+      setMostrarModalRenovacion(false)
+      return
+    }
 
     // Actualizar vista local y abrir resumen
     const cambios = { estado: 'activo', plan: planObj.nombre, inicio: fechaInicioStr, fin: fechaFinStr }
@@ -157,7 +170,10 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
     })
   }
 
-  function confirmarPase() {
+  async function confirmarPase() {
+    if (procesando) return
+    setProcesando(true)
+
     const hoy = new Date()
     hoy.setHours(0, 0, 0, 0)
     const fechaFin = new Date(hoy)
@@ -174,20 +190,33 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
     // 1. Actualizar estado global del miembro
     actualizarMiembro(miembroViendo.id, cambios)
 
-    // 2. Registrar el cobro en el historial
+    // 2. Registrar el cobro como transacción real (antes solo quedaba en
+    //    el historial local y nunca llegaba a la caja ni al dashboard)
+    const montoNum = parseFloat(montoPase) || 0
+    if (montoNum > 0) {
+      await registrarTransaccion({
+        concepto: `Venta Pase (${diasPase} día${diasPase > 1 ? 's' : ''})`,
+        monto: montoNum,
+        metodo_pago: 'Efectivo',
+        miembro_id: miembroViendo.id,
+      })
+    }
+
+    // 3. Registrar el cobro en el historial
     agregarRegistro({
       tipo: 'cobro',
       titulo: `Pase Día - ${miembroViendo.nombre}`,
       detalle: `Cobro pase ${diasPase} día(s): S/ ${montoPase}. Cliente: ${miembroViendo.nombre}`,
       miembroId: miembroViendo.id,
     })
+    setProcesando(false)
 
-    // 3. Actualizar vista local
+    // 4. Actualizar vista local
     const miembroActualizado = { ...miembroViendo, ...cambios }
     setMiembroViendo(miembroActualizado)
     setMostrarModalPase(false)
 
-    // 4. Abrir Resumen de Operación
+    // 5. Abrir Resumen de Operación
     setResumenOperacion({
       tipo: 'pase',
       nombre: miembroViendo.nombre,
@@ -201,6 +230,27 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
       monto: montoPase,
       qrToken: miembroViendo.qrToken,
     })
+  }
+
+  // Exporta TODOS los miembros con asistencias y pagos a un Excel real
+  // (.xlsx con 3 hojas). Disponible para Admin y Recepción.
+  async function exportarExcel() {
+    if (exportando) return
+    setExportando(true)
+    try {
+      const data = await apiFetch('exportar_miembros.php')
+      if (!data.success) {
+        mostrarToast(data.mensaje || 'No se pudo obtener los datos para exportar', 'error')
+        return
+      }
+      await generarExcelMiembros(data)
+      mostrarToast(`Excel descargado: ${data.miembros.length} miembros`)
+    } catch (error) {
+      console.error('[exportarExcel]', error)
+      mostrarToast('Error al generar el archivo Excel', 'error')
+    } finally {
+      setExportando(false)
+    }
   }
 
   const registrarAsistenciaNormal = () => {
@@ -858,6 +908,16 @@ export default function MiembrosView({ usuario, setVistaActiva, miembroPreSelecc
           <option value="inactivo">Inactivos</option>
           <option value="congelado">Congelados</option>
         </select>
+        <button
+          type="button"
+          onClick={exportarExcel}
+          disabled={exportando}
+          title="Descarga un Excel con todos los miembros, sus asistencias y pagos"
+          className="flex items-center justify-center gap-2 py-3 px-5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <FileSpreadsheet size={18} />
+          {exportando ? 'Exportando…' : 'Exportar Excel'}
+        </button>
       </div>
 
       {/* Tabla de miembros */}

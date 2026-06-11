@@ -1,43 +1,56 @@
 <?php
-// 1. Llamamos a la llave maestra
 require_once 'conexion.php';
-$data = json_decode(file_get_contents("php://input"));
 
-// 2. Verificamos SOLO lo más vital: DNI y Nombre
-if (isset($data->dni) && isset($data->nombre)) {
+$usuarioActual = requerir_sesion($conexion);
 
-    // 3. Generamos el código QR
-    $qr_token = uniqid('tramusa_qr_');
+solo_metodo('POST');
+$data = leer_json();
 
-    // Si viene un plan_id y es un número, lo usamos. Si no, lo dejamos en NULL
-    $plan_id = (isset($data->plan_id) && is_numeric($data->plan_id)) ? $data->plan_id : null;
+$dni = trim((string) campo($data, 'dni', ''));
+$nombre = trim((string) campo($data, 'nombre', ''));
 
-    try {
-        // AÑADIMOS LAS 3 COLUMNAS NUEVAS AL SQL
-        $sql = "INSERT INTO miembros (dni, nombres, apellidos, telefono, email, contacto_emergencia_nombre, contacto_emergencia_telefono, plan_id, fecha_inicio, fecha_fin, qr_token, estado) 
-                VALUES (:dni, :nombres, '', :telefono, :email, :contacto_emergencia_nombre, :contacto_emergencia_telefono, :plan_id, :fecha_inicio, :fecha_fin, :qr_token, 'Activo')";
-
-        $stmt = $conexion->prepare($sql);
-        $stmt->execute([
-            ':dni' => $data->dni,
-            ':nombres' => $data->nombre,
-            ':telefono' => isset($data->celular) ? $data->celular : '',
-            // CAPTURAMOS LOS DATOS NUEVOS
-            ':email' => isset($data->email) ? $data->email : null,
-            ':contacto_emergencia_nombre' => isset($data->contacto_emergencia_nombre) ? $data->contacto_emergencia_nombre : null,
-            ':contacto_emergencia_telefono' => isset($data->contacto_emergencia_telefono) ? $data->contacto_emergencia_telefono : null,
-            // ---------------------------
-            ':plan_id' => $plan_id,
-            ':fecha_inicio' => isset($data->fecha_inicio) ? $data->fecha_inicio : null,
-            ':fecha_fin' => isset($data->fecha_fin) ? $data->fecha_fin : null,
-            ':qr_token' => $qr_token
-        ]);
-
-        echo json_encode(["success" => true, "mensaje" => "¡Cliente inscrito con éxito!", "qr_token" => $qr_token]);
-    } catch (PDOException $e) {
-        echo json_encode(["success" => false, "mensaje" => "Error al guardar en BD: " . $e->getMessage()]);
-    }
-} else {
-    echo json_encode(["success" => false, "mensaje" => "Faltan datos obligatorios (DNI o Nombre)."]);
+if ($dni === '' || $nombre === '') {
+    responder_error('Faltan datos obligatorios (DNI o Nombre).', 400);
 }
-?>
+
+// Token QR impredecible (uniqid() era adivinable por ser un timestamp).
+$qrToken = 'tramusa_qr_' . bin2hex(random_bytes(16));
+
+$planId = is_numeric(campo($data, 'plan_id')) ? (int) $data->plan_id : null;
+
+try {
+    $sql = 'INSERT INTO miembros
+                (dni, nombres, apellidos, telefono, email,
+                 contacto_emergencia_nombre, contacto_emergencia_telefono,
+                 plan_id, fecha_inicio, fecha_fin, turno, qr_token, estado)
+            VALUES
+                (:dni, :nombres, \'\', :telefono, :email,
+                 :contacto_nombre, :contacto_telefono,
+                 :plan_id, :fecha_inicio, :fecha_fin, :turno, :qr_token, \'Activo\')';
+
+    $conexion->prepare($sql)->execute([
+        ':dni' => $dni,
+        ':nombres' => $nombre,
+        ':telefono' => campo($data, 'celular', ''),
+        ':email' => campo($data, 'email'),
+        ':contacto_nombre' => campo($data, 'contacto_emergencia_nombre'),
+        ':contacto_telefono' => campo($data, 'contacto_emergencia_telefono'),
+        ':plan_id' => $planId,
+        ':fecha_inicio' => campo($data, 'fecha_inicio'),
+        ':fecha_fin' => campo($data, 'fecha_fin'),
+        ':turno' => campo($data, 'turno'),
+        ':qr_token' => $qrToken,
+    ]);
+
+    responder([
+        'success' => true,
+        'mensaje' => '¡Cliente inscrito con éxito!',
+        'qr_token' => $qrToken,
+        'id' => (int) $conexion->lastInsertId(),
+    ]);
+} catch (PDOException $e) {
+    if ($e->getCode() === '23000') {
+        responder_error('Ya existe un miembro registrado con ese DNI.', 409);
+    }
+    responder_error('Error al inscribir al cliente.', 500, $e);
+}

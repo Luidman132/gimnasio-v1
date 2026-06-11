@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { apiFetch, getToken } from '../utils/api'
 
 const GymContext = createContext()
 
@@ -24,211 +25,174 @@ export function GymProvider({ children }) {
   const [reporteFinanzas, setReporteFinanzas] = useState({ transacciones: [], asistencias_grafico: [], granularidad: 'dia' })
 
   async function fetchReporteFinanzas(dias = 7) {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_transacciones.php?dias=${dias}&t=${new Date().getTime()}`)
-      const data = await response.json()
-      if (data.success) {
-        setReporteFinanzas({
-          transacciones: data.transacciones || [],
-          asistencias_grafico: data.asistencias_grafico || [],
-          granularidad: data.granularidad || 'dia',
-        })
-      } else {
-        console.warn('[fetchReporteFinanzas] Error del servidor:', data.mensaje)
-      }
-    } catch (error) {
-      console.warn('[fetchReporteFinanzas] Error de conexión:', error)
+    const data = await apiFetch(`obtener_transacciones.php?dias=${dias}`)
+    if (data.success) {
+      setReporteFinanzas({
+        transacciones: data.transacciones || [],
+        asistencias_grafico: data.asistencias_grafico || [],
+        granularidad: data.granularidad || 'dia',
+      })
     }
   }
 
   const fetchConfiguracion = async () => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_configuracion.php`)
-      const data = await response.json()
-      if (data.success && data.configuracion) {
-        const c = data.configuracion
-        setConfiguracion(prev => ({
-          ...prev,
-          nombre_gimnasio: c.nombre_gimnasio || prev.nombre_gimnasio,
-          moneda: c.moneda || prev.moneda,
-          telefono: c.telefono || '',
-          direccion: c.direccion || '',
-          mensaje_ticket: c.mensaje_ticket || '',
-          logo_base64: c.logo_base64 || null,
-          plantilla_whatsapp: c.plantilla_whatsapp || '',
-        }))
-      }
-    } catch (error) {
-      console.warn('[fetchConfiguracion] Error de conexión:', error)
+    const data = await apiFetch('obtener_configuracion.php')
+    if (data.success && data.configuracion) {
+      const c = data.configuracion
+      setConfiguracion(prev => ({
+        ...prev,
+        nombre_gimnasio: c.nombre_gimnasio || prev.nombre_gimnasio,
+        moneda: c.moneda || prev.moneda,
+        telefono: c.telefono || '',
+        direccion: c.direccion || '',
+        mensaje_ticket: c.mensaje_ticket || '',
+        logo_base64: c.logo_base64 || null,
+        plantilla_whatsapp: c.plantilla_whatsapp || '',
+      }))
     }
   }
 
   async function fetchActividadReciente() {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_actividad_reciente.php?t=${new Date().getTime()}`)
-      const data = await response.json()
-      if (data.actividad_reciente) {
-        setActividadReciente(data.actividad_reciente)
-      }
-    } catch (error) {
-      console.warn('[fetchActividadReciente] Error:', error)
+    const data = await apiFetch('obtener_actividad_reciente.php')
+    if (data.actividad_reciente) {
+      setActividadReciente(data.actividad_reciente)
     }
   }
 
   async function fetchResumen() {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_resumen_dashboard.php?t=` + new Date().getTime())
-      const data = await response.json()
-      console.log('=> DATO FRESCO DEL DASHBOARD:', data)
-      if (data.success) {
-        setResumen({
-          ingresos_hoy: Number(data.ingresos_hoy) || 0,
-          miembros_activos: Number(data.miembros_activos) || 0,
-          asistencias_hoy: Number(data.asistencias_hoy) || 0,
-        })
-      }
-      await fetchActividadReciente();
-    } catch (error) {
-      console.warn('[fetchResumen] Error de conexión:', error)
+    const data = await apiFetch('obtener_resumen_dashboard.php')
+    if (data.success) {
+      setResumen({
+        ingresos_hoy: Number(data.ingresos_hoy) || 0,
+        miembros_activos: Number(data.miembros_activos) || 0,
+        asistencias_hoy: Number(data.asistencias_hoy) || 0,
+      })
     }
+    await fetchActividadReciente()
   }
 
   const fetchPlanes = async () => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_planes.php`);
-      const data = await response.json();
-      if (data.success) {
-        const planesAdaptados = data.planes.map(plan => {
-          const dias = Number(plan.duracion_dias);
-          let duracion = plan.duracion;
-          if (!duracion) {
-            if (dias >= 365 && dias % 365 === 0) {
-              const a = dias / 365;
-              duracion = `${a} ${a === 1 ? 'año' : 'años'}`;
-            } else if (dias >= 30 && dias % 30 === 0) {
-              const m = dias / 30;
-              duracion = `${m} ${m === 1 ? 'mes' : 'meses'}`;
-            } else {
-              duracion = `${dias} ${dias === 1 ? 'día' : 'días'}`;
-            }
-          }
-          return {
-            ...plan,
-            precio: Number(plan.precio),
-            activo: Boolean(Number(plan.activo)),
-            duracion,
-            duracionDias: dias,
-            esPromocion: Boolean(Number(plan.es_promocion)),
-            fechaInicioVenta: plan.fecha_inicio_venta,
-            fechaFinVenta: plan.fecha_fin_venta,
-          };
-        });
-        setPlanes(planesAdaptados);
-      } else {
-        console.error("Error del servidor:", data.mensaje);
+    const data = await apiFetch('obtener_planes.php')
+    if (!data.success) return
+
+    const planesAdaptados = data.planes.map(plan => {
+      const dias = Number(plan.duracion_dias)
+      let duracion = plan.duracion
+      if (!duracion) {
+        if (dias >= 365 && dias % 365 === 0) {
+          const a = dias / 365
+          duracion = `${a} ${a === 1 ? 'año' : 'años'}`
+        } else if (dias >= 30 && dias % 30 === 0) {
+          const m = dias / 30
+          duracion = `${m} ${m === 1 ? 'mes' : 'meses'}`
+        } else {
+          duracion = `${dias} ${dias === 1 ? 'día' : 'días'}`
+        }
       }
-    } catch (error) {
-      console.error("Error conectando con la API de planes:", error);
-    }
-  };
+      return {
+        ...plan,
+        precio: Number(plan.precio),
+        activo: Boolean(Number(plan.activo)),
+        duracion,
+        duracionDias: dias,
+        esPromocion: Boolean(Number(plan.es_promocion)),
+        fechaInicioVenta: plan.fecha_inicio_venta,
+        fechaFinVenta: plan.fecha_fin_venta,
+      }
+    })
+    setPlanes(planesAdaptados)
+  }
 
   const fetchMiembros = async () => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_miembros.php`);
-      const data = await response.json();
+    const data = await apiFetch('obtener_miembros.php')
+    if (!data.success) return
 
-      if (data.success) {
-        const hoy = new Date()
-        hoy.setHours(0, 0, 0, 0)
+    const hoy = new Date()
+    hoy.setHours(0, 0, 0, 0)
 
-        const miembrosAdaptados = data.miembros.map(m => {
-          // Normalizar el estado de la BD a minúsculas para el frontend
-          const estadoBD = (m.estado || 'activo').toLowerCase()
+    const miembrosAdaptados = data.miembros.map(m => {
+      // Normalizar el estado de la BD a minúsculas para el frontend
+      const estadoBD = (m.estado || 'activo').toLowerCase()
 
-          // Cálculo dinámico: si no está manualmente inactivo/congelado, verificar fecha_fin
-          let estadoCalculado = estadoBD
-          if (estadoBD !== 'inactivo' && estadoBD !== 'congelado') {
-            if (m.fecha_fin) {
-              const fechaFinAux = m.fecha_fin.split(' ')[0]
-              const [year, month, day] = fechaFinAux.split('-')
-              const fechaFin = new Date(year, month - 1, day)
-              if (fechaFin < hoy) {
-                estadoCalculado = 'vencido'
-              }
-            }
+      // Cálculo dinámico: si no está manualmente inactivo/congelado, verificar fecha_fin
+      let estadoCalculado = estadoBD
+      if (estadoBD !== 'inactivo' && estadoBD !== 'congelado') {
+        if (m.fecha_fin) {
+          const fechaFinAux = m.fecha_fin.split(' ')[0]
+          const [year, month, day] = fechaFinAux.split('-')
+          const fechaFin = new Date(year, month - 1, day)
+          if (fechaFin < hoy) {
+            estadoCalculado = 'vencido'
           }
-
-          return {
-            ...m,
-            id: Number(m.id),
-            nombre: m.nombres || m.nombre || 'Sin nombre',
-            dni: m.dni || 'Sin DNI',
-            celular: m.telefono || m.celular || '',
-            email: m.email || '',
-            plan: m.plan_nombre || m.plan || 'Sin Plan',
-            planId: Number(m.plan_id) || null,
-            inicio: m.fecha_inicio || null,
-            fin: m.fecha_fin || null,
-            estado: estadoCalculado,
-            turno: m.turno || '',
-            contactoNombre: m.contacto_emergencia_nombre || '',
-            contactoTelefono: m.contacto_emergencia_telefono || '',
-            qrToken: m.qr_token || null,
-            diasRestantes: Number(m.dias_restantes) || 0,
-          }
-        });
-        setMiembros(miembrosAdaptados);
-      } else {
-        console.error("Error del servidor:", data.mensaje);
+        }
       }
-    } catch (error) {
-      console.error("Error conectando con la API de miembros:", error);
-    }
-  };
+
+      return {
+        ...m,
+        id: Number(m.id),
+        nombre: m.nombres || m.nombre || 'Sin nombre',
+        dni: m.dni || 'Sin DNI',
+        celular: m.telefono || m.celular || '',
+        email: m.email || '',
+        plan: m.plan_nombre || m.plan || 'Sin Plan',
+        planId: Number(m.plan_id) || null,
+        inicio: m.fecha_inicio || null,
+        fin: m.fecha_fin || null,
+        estado: estadoCalculado,
+        turno: m.turno || '',
+        contactoNombre: m.contacto_emergencia_nombre || '',
+        contactoTelefono: m.contacto_emergencia_telefono || '',
+        qrToken: m.qr_token || null,
+        diasRestantes: Number(m.dias_restantes) || 0,
+      }
+    })
+    setMiembros(miembrosAdaptados)
+  }
 
   const fetchHistorial = async () => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/obtener_asistencias.php`);
-      const data = await response.json();
+    const data = await apiFetch('obtener_asistencias.php')
+    if (!data.success || !data.asistencias) return
 
-      if (data.success && data.asistencias) {
-        const historialAdaptado = data.asistencias.map(asis => {
-          const fechaHora = new Date(asis.fecha_hora);
-          const nombre = asis.nombres && asis.apellidos
-            ? `${asis.nombres} ${asis.apellidos}`.trim()
-            : asis.nombre_miembro || asis.nombre || asis.nombres || 'Miembro';
-          const horaVal = !isNaN(fechaHora.getTime()) ? fechaHora : new Date();
+    const historialAdaptado = data.asistencias.map(asis => {
+      const fechaHora = new Date(asis.fecha_hora)
+      const nombre = asis.nombres && asis.apellidos
+        ? `${asis.nombres} ${asis.apellidos}`.trim()
+        : asis.nombre_miembro || asis.nombre || asis.nombres || 'Miembro'
+      const horaVal = !isNaN(fechaHora.getTime()) ? fechaHora : new Date()
 
-          return {
-            id: Number(asis.id),
-            tipo: asis.tipo || 'asistencia',
-            titulo: nombre,
-            detalle: asis.detalle || `DNI: ${asis.dni || 'N/A'}`,
-            hora: horaVal,
-            turno: asis.turno || (horaVal.getHours() < 14 ? 'Mañana' : 'Tarde'),
-          };
-        });
-        setHistorial(historialAdaptado);
-      } else {
-        // Backend devolvió error — no silenciar, loguearlo con detalle
-        console.warn("[fetchHistorial] Backend respondió sin éxito:", data.mensaje || 'Sin mensaje');
+      return {
+        id: Number(asis.id),
+        tipo: asis.tipo || 'asistencia',
+        titulo: nombre,
+        detalle: asis.detalle || `DNI: ${asis.dni || 'N/A'}`,
+        hora: horaVal,
+        turno: asis.turno || (horaVal.getHours() < 14 ? 'Mañana' : 'Tarde'),
       }
-    } catch (error) {
-      console.error("[fetchHistorial] Error de conexión:", error);
-    }
-  };
+    })
+    setHistorial(historialAdaptado)
+  }
 
   // Refresca miembros + resumen para recalcular vencimientos con la fecha actual
   async function revisarVencimientos() {
     await Promise.all([fetchMiembros(), fetchResumen()])
   }
 
-  useEffect(() => {
+  function cargarDatosIniciales() {
     fetchPlanes()
     fetchMiembros()
     fetchHistorial()
     fetchConfiguracion()
     fetchResumen()
+  }
+
+  useEffect(() => {
+    // Solo cargar datos si hay sesión activa; al iniciar sesión la app
+    // dispara 'tramusa:login' y se cargan en ese momento.
+    if (getToken()) {
+      cargarDatosIniciales()
+    }
+    window.addEventListener('tramusa:login', cargarDatosIniciales)
+    return () => window.removeEventListener('tramusa:login', cargarDatosIniciales)
   }, [])
 
   const agregarMiembro = async (nuevoMiembro) => {
@@ -249,26 +213,14 @@ export function GymProvider({ children }) {
       turno: nuevoMiembro.turno || null,
     }
 
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/guardar_miembro.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        await fetchMiembros()
-        return { success: true, data }
-      } else {
-        alert("Error al inscribir: " + data.mensaje)
-        return { success: false }
-      }
-    } catch (error) {
-      console.error("Error conectando con la API:", error)
-      return { success: false }
+    const data = await apiFetch('guardar_miembro.php', { method: 'POST', body: payload })
+    if (data.success) {
+      // Refrescar la lista en segundo plano: la vista no necesita esperar
+      // la descarga completa de miembros para mostrar el resumen.
+      fetchMiembros()
+      return { success: true, data }
     }
+    return { success: false, mensaje: data.mensaje }
   }
 
   const actualizarMiembro = async (id, cambios) => {
@@ -290,29 +242,16 @@ export function GymProvider({ children }) {
     if (cambios.contactoNombre !== undefined) payload.contacto_emergencia_nombre = cambios.contactoNombre
     if (cambios.contactoTelefono !== undefined) payload.contacto_emergencia_telefono = cambios.contactoTelefono
 
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/editar_miembro.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        return { success: true }
-      } else {
-        console.error("Error al actualizar miembro:", data.mensaje)
-        return { success: false }
-      }
-    } catch (error) {
-      console.error("Error conectando con la API:", error)
-      return { success: false }
+    const data = await apiFetch('editar_miembro.php', { method: 'POST', body: payload })
+    if (!data.success) {
+      // Revertir el estado local con los datos reales de la BD
+      await fetchMiembros()
+      return { success: false, mensaje: data.mensaje }
     }
+    return { success: true }
   }
 
   async function agregarRegistro(nuevoRegistro) {
-    console.log('3. Entrando a agregarRegistro en Contexto. Datos:', nuevoRegistro)
     // Insertar localmente de inmediato para feedback instantáneo
     const registro = {
       ...nuevoRegistro,
@@ -331,31 +270,17 @@ export function GymProvider({ children }) {
     if (esSoloLocal) return registro
 
     // Asistencias normales de miembros → persistir en la BD
-    const payload = {
-      miembro_id: nuevoRegistro.miembroId || null,
-      tipo: nuevoRegistro.tipo || 'asistencia',
-      titulo: nuevoRegistro.titulo || '',
-      detalle: nuevoRegistro.detalle || '',
-    }
-    console.log('[Asistencia Miembro] Enviando:', payload)
-    console.log('4. Haciendo fetch a PHP...')
+    const data = await apiFetch('registrar_asistencia.php', {
+      method: 'POST',
+      body: { miembro_id: nuevoRegistro.miembroId || null },
+    })
 
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/registrar_asistencia.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      const data = await response.json()
-      console.log('[Asistencia Miembro] Respuesta:', data)
-
-      if (data.success) {
-        await fetchResumen()
-      } else {
-        console.error('[Asistencia Miembro] Error del servidor:', data.mensaje)
-      }
-    } catch (error) {
-      console.warn("[agregarRegistro] No se pudo persistir en BD:", error)
+    if (data.success) {
+      await fetchResumen()
+    } else {
+      // No se pudo persistir (ej. asistencia duplicada): quitar el registro local
+      setHistorial(prev => prev.filter(h => h.id !== registro.id))
+      return { ...registro, error: data.mensaje }
     }
 
     return registro
@@ -377,28 +302,16 @@ export function GymProvider({ children }) {
       es_promocion: Boolean(nuevoPlan.esPromocion || nuevoPlan.es_promocion),
       fecha_inicio_venta: nuevoPlan.fechaInicioVenta || nuevoPlan.fecha_inicio_venta || null,
       fecha_fin_venta: nuevoPlan.fechaFinVenta || nuevoPlan.fecha_fin_venta || null,
-      nota: nuevoPlan.nota || null
-    };
-
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/guardar_plan.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        await fetchPlanes();
-      } else {
-        console.error("Error al guardar:", data.mensaje);
-        alert("Hubo un error al guardar el plan: " + data.mensaje);
-      }
-    } catch (error) {
-      console.error("Error conectando con la API:", error);
+      nota: nuevoPlan.nota || null,
     }
-  };
+
+    const data = await apiFetch('guardar_plan.php', { method: 'POST', body: payload })
+    if (data.success) {
+      await fetchPlanes()
+    } else {
+      alert('Hubo un error al guardar el plan: ' + data.mensaje)
+    }
+  }
 
   const actualizarPlan = async (id, planActualizado) => {
     const payload = {
@@ -409,203 +322,118 @@ export function GymProvider({ children }) {
       es_promocion: Boolean(planActualizado.esPromocion || planActualizado.es_promocion),
       fecha_inicio_venta: planActualizado.fechaInicioVenta || planActualizado.fecha_inicio_venta || null,
       fecha_fin_venta: planActualizado.fechaFinVenta || planActualizado.fecha_fin_venta || null,
-      nota: planActualizado.nota || null
-    };
-
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/editar_plan.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        await fetchPlanes();
-      } else {
-        alert("Error al actualizar: " + data.mensaje);
-      }
-    } catch (error) {
-      console.error("Error conectando con la API:", error);
+      nota: planActualizado.nota || null,
     }
-  };
+
+    const data = await apiFetch('editar_plan.php', { method: 'POST', body: payload })
+    if (data.success) {
+      await fetchPlanes()
+    } else {
+      alert('Error al actualizar: ' + data.mensaje)
+    }
+  }
 
   const eliminarPlan = async (id) => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/eliminar_plan.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        await fetchPlanes();
-      } else {
-        alert("Error al eliminar: " + data.mensaje);
-      }
-    } catch (error) {
-      console.error("Error de conexión:", error);
+    const data = await apiFetch('eliminar_plan.php', { method: 'POST', body: { id } })
+    if (data.success) {
+      await fetchPlanes()
+    } else {
+      alert('Error al eliminar: ' + data.mensaje)
     }
-  };
+  }
 
   const toggleActivoPlan = async (id) => {
-    const planActual = planes.find(p => p.id === id);
-    if (!planActual) return;
+    const planActual = planes.find(p => p.id === id)
+    if (!planActual) return
 
-    const nuevoEstado = !planActual.activo;
-
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/toggle_estado_plan.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, activo: nuevoEstado })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        await fetchPlanes();
-      } else {
-        alert("Error al cambiar estado: " + data.mensaje);
-      }
-    } catch (error) {
-      console.error("Error conectando con la API:", error);
+    const data = await apiFetch('toggle_estado_plan.php', {
+      method: 'POST',
+      body: { id: id, activo: !planActual.activo },
+    })
+    if (data.success) {
+      await fetchPlanes()
+    } else {
+      alert('Error al cambiar estado: ' + data.mensaje)
     }
-  };
+  }
 
   const registrarTransaccion = async (datosTransaccion) => {
-    try {
-      console.log('[registrarTransaccion] Enviando payload:', datosTransaccion)
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/guardar_transaccion.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(datosTransaccion),
-      })
-      const data = await response.json()
-      console.log('[registrarTransaccion] Respuesta del servidor:', data)
-      if (data.success) {
-        await fetchResumen()
-      } else {
-        console.error('[registrarTransaccion] Error del servidor:', data.mensaje)
-      }
-      return data
-    } catch (error) {
-      console.error('[registrarTransaccion] Error de conexión:', error)
-      return { success: false }
+    const data = await apiFetch('guardar_transaccion.php', { method: 'POST', body: datosTransaccion })
+    if (data.success) {
+      await fetchResumen()
     }
+    return data
   }
 
   const registrarVisitaLibre = async (datosVisita) => {
-    try {
-      console.log('[registrarVisitaLibre] Enviando payload:', datosVisita)
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/registrar_visita_libre.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(datosVisita),
-      })
-      const data = await response.json()
-      console.log('[registrarVisitaLibre] Respuesta del servidor:', data)
-      if (data.success) {
-        await fetchResumen()
-      } else {
-        console.error('[registrarVisitaLibre] Error del servidor:', data.mensaje)
-      }
-      return data
-    } catch (error) {
-      console.error('[registrarVisitaLibre] Error de conexión:', error)
-      return { success: false }
+    const data = await apiFetch('registrar_visita_libre.php', { method: 'POST', body: datosVisita })
+    if (data.success) {
+      await fetchResumen()
     }
+    return data
   }
 
+  // Renovación atómica: el backend actualiza al miembro y registra el cobro
+  // en una sola transacción SQL (o se guardan ambos, o ninguno).
   async function renovarMiembro(id, datosRenovacion) {
     const { plan, planLabel, fechaInicio, fechaFin, monto, turno, recibo, nombreMiembro } = datosRenovacion
 
-    try {
-      // 1. Actualizar estado del miembro en la BD
-      const resActualizar = await actualizarMiembro(id, {
-        estado: 'activo',
-        plan: plan,
-        inicio: fechaInicio || undefined,
-        fin: fechaFin,
-        turno: turno || undefined,
-      })
-
-      // 2. Registrar el cobro como transacción en la BD
-      const resTransaccion = await registrarTransaccion({
-        concepto: `Renovación de Plan - ${planLabel || plan}`,
+    const data = await apiFetch('renovar_miembro.php', {
+      method: 'POST',
+      body: {
+        miembro_id: id,
+        plan_nombre: plan || null,
+        fecha_inicio: fechaInicio || null,
+        fecha_fin: fechaFin,
+        turno: turno || null,
         monto: Number(monto) || 0,
         metodo_pago: 'Efectivo',
-        miembro_id: id,
-      })
+        concepto: `Renovación de Plan - ${planLabel || plan}`,
+      },
+    })
 
-      // 3. Registrar en el historial de actividad
-      agregarRegistro({
-        tipo: 'cobro',
-        titulo: `Renovación: ${nombreMiembro}`,
-        detalle: `Plan: ${planLabel || plan} - Pago: S/ ${Number(monto).toFixed(2)}`,
-        recibo: recibo || undefined,
-        miembroId: id,
-      })
-
-      return {
-        success: resActualizar?.success !== false && resTransaccion?.success !== false,
-      }
-    } catch (error) {
-      console.error('[renovarMiembro] Error:', error)
-      return { success: false }
+    if (!data.success) {
+      return { success: false, mensaje: data.mensaje }
     }
+
+    // Registrar en el historial local de actividad
+    agregarRegistro({
+      tipo: 'cobro',
+      titulo: `Renovación: ${nombreMiembro}`,
+      detalle: `Plan: ${planLabel || plan} - Pago: S/ ${Number(monto).toFixed(2)}`,
+      recibo: recibo || undefined,
+      miembroId: id,
+    })
+
+    await Promise.all([fetchMiembros(), fetchResumen()])
+    return { success: true }
   }
 
   async function eliminarMiembro(id) {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/eliminar_miembro.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      })
-      const data = await response.json()
-      if (data.success) {
-        setMiembros(prev => prev.filter(m => m.id !== id))
-        return { success: true }
-      } else {
-        console.error('[eliminarMiembro] Error del servidor:', data.mensaje)
-        return { success: false, mensaje: data.mensaje }
-      }
-    } catch (error) {
-      console.error('[eliminarMiembro] Error de conexión:', error)
-      return { success: false }
+    const data = await apiFetch('eliminar_miembro.php', { method: 'POST', body: { id } })
+    if (data.success) {
+      setMiembros(prev => prev.filter(m => m.id !== id))
+      return { success: true }
     }
+    return { success: false, mensaje: data.mensaje }
   }
 
   const guardarConfiguracion = async (nuevosDatos) => {
-    try {
-      const payload = {
-        nombre_gimnasio: nuevosDatos.nombre_gimnasio,
-        moneda: nuevosDatos.moneda,
-        telefono: nuevosDatos.telefono,
-        direccion: nuevosDatos.direccion,
-        mensaje_ticket: nuevosDatos.mensaje_ticket,
-        logo_base64: nuevosDatos.logo_base64 || null,
-        plantilla_whatsapp: nuevosDatos.plantilla_whatsapp || null,
-      }
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/guardar_configuracion.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      const data = await response.json()
-      if (data.success) {
-        setConfiguracion(prev => ({ ...prev, ...nuevosDatos }))
-        return { success: true }
-      } else {
-        console.error('Error al guardar configuración:', data.mensaje)
-        return { success: false, mensaje: data.mensaje }
-      }
-    } catch (error) {
-      console.error('Error de conexión:', error)
-      return { success: false }
+    const payload = {
+      nombre_gimnasio: nuevosDatos.nombre_gimnasio,
+      moneda: nuevosDatos.moneda,
+      telefono: nuevosDatos.telefono,
+      direccion: nuevosDatos.direccion,
+      mensaje_ticket: nuevosDatos.mensaje_ticket,
+      logo_base64: nuevosDatos.logo_base64 || null,
+      plantilla_whatsapp: nuevosDatos.plantilla_whatsapp || null,
     }
+    const data = await apiFetch('guardar_configuracion.php', { method: 'POST', body: payload })
+    if (data.success) {
+      setConfiguracion(prev => ({ ...prev, ...nuevosDatos }))
+      return { success: true }
+    }
+    return { success: false, mensaje: data.mensaje }
   }
 
   return (

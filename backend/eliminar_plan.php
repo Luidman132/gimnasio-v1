@@ -1,37 +1,32 @@
 <?php
-// 1. Llamamos a la llave maestra
 require_once 'conexion.php';
 
-// 2. Recibimos el paquete de React (que solo traerá el ID del plan)
-$data = json_decode(file_get_contents("php://input"));
+$usuarioActual = requerir_sesion($conexion, soloAdmin: true);
 
-// 3. Verificamos que nos hayan mandado el ID
-if (isset($data->id)) {
-    $id = $data->id;
+solo_metodo('POST');
+$data = leer_json();
 
-    try {
-        // Verificar si hay miembros asociados a este plan
-        $stmt_check = $conexion->prepare("SELECT COUNT(*) FROM miembros WHERE plan_id = :id");
-        $stmt_check->bindParam(':id', $id);
-        $stmt_check->execute();
-        $count = $stmt_check->fetchColumn();
-
-        if ($count > 0) {
-            echo json_encode(["success" => false, "mensaje" => "No se puede eliminar este plan porque tiene {$count} miembros asociados. Te recomendamos desactivarlo en su lugar."]);
-            exit;
-        }
-
-        // 4. Le ordenamos a MySQL que borre ese registro
-        $stmt = $conexion->prepare("DELETE FROM planes WHERE id = :id");
-        $stmt->bindParam(':id', $id);
-        $stmt->execute();
-
-        // 5. Le confirmamos a React
-        echo json_encode(["success" => true, "mensaje" => "¡Plan eliminado para siempre!"]);
-    } catch (PDOException $e) {
-        echo json_encode(["success" => false, "mensaje" => "Error al eliminar: " . $e->getMessage()]);
-    }
-} else {
-    echo json_encode(["success" => false, "mensaje" => "No me dijiste qué plan borrar (Falta ID)."]);
+$id = campo($data, 'id');
+if (!is_numeric($id)) {
+    responder_error('Falta el ID del plan a eliminar.', 400);
 }
-?>
+
+try {
+    // No se elimina un plan con miembros asociados (se perdería el historial).
+    $stmt = $conexion->prepare('SELECT COUNT(*) FROM miembros WHERE plan_id = :id');
+    $stmt->execute([':id' => (int) $id]);
+    $asociados = (int) $stmt->fetchColumn();
+
+    if ($asociados > 0) {
+        responder_error(
+            "No se puede eliminar este plan porque tiene {$asociados} miembros asociados. Te recomendamos desactivarlo en su lugar.",
+            409
+        );
+    }
+
+    $conexion->prepare('DELETE FROM planes WHERE id = :id')->execute([':id' => (int) $id]);
+
+    responder(['success' => true, 'mensaje' => 'Plan eliminado.']);
+} catch (PDOException $e) {
+    responder_error('Error al eliminar el plan.', 500, $e);
+}

@@ -1,7 +1,7 @@
 {
-  "name": "tmp-scaffold",
+  "name": "tramusagym-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@yudiel/react-qr-scanner": "^2.5.1",
+    "exceljs": "^4.4.0",
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.577.0",
