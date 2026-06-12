@@ -53,7 +53,7 @@ Regla de oro: nunca desplegar sin backup, y nunca usar `docker compose down -v`
 ### Clonar e instalar (servidor nuevo)
 
 ```bash
-git clone https://github.com/RonaldoHorta159/gimnasio-v1.git
+git clone https://github.com/Luidman132/gimnasio-v1.git
 cd gimnasio-v1
 cp .env.example .env      # editar DB_PASS
 docker compose up -d --build

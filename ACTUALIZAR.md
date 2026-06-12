@@ -27,7 +27,7 @@ Instalación desde cero. La base de datos se crea con su esquema y dos usuarios
 semilla automáticamente.
 
 ```bash
-git clone https://github.com/RonaldoHorta159/gimnasio-v1.git
+git clone https://github.com/Luidman132/gimnasio-v1.git
 cd gimnasio-v1
 cp .env.example .env          # edita DB_PASS con una contraseña fuerte
 docker compose up -d --build
@@ -130,7 +130,7 @@ copia de tu `.env` y usa `git stash` antes de volver a intentar.
 
 > ¿La carpeta de producción no es un clon de git? Conviértela una sola vez:
 > ```bash
-> git init && git remote add origin https://github.com/RonaldoHorta159/gimnasio-v1.git
+> git init && git remote add origin https://github.com/Luidman132/gimnasio-v1.git
 > git fetch origin && git reset --hard origin/main   # NO borra .env ni el volumen
 > ```
 > (Esto reemplaza solo los archivos versionados; tu `.env` y el volumen de
